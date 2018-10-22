@@ -1,3 +1,10 @@
+//!
+//! Just some basic nodes
+//!
+
+use std::f64;
+
+/// The generic node trait
 pub trait Node {
     /// 'Activation' refers to the output value of the node
     fn calc_activation(&self) -> f64;
@@ -21,7 +28,7 @@ impl Node for InputNode {
     }
 }
 
-/// Pass this node as input to whichever non-input nodes
+/// Pass this node with const_value = 1 as input to whichever non-input nodes
 /// that requires a bias. Essentially just an InputNode that
 /// has a constant value
 pub struct ConstantNode {
@@ -42,15 +49,25 @@ impl Node for ConstantNode {
     }
 }
 
+pub struct NodeWeight<'n> {
+    pub node: &'n Node,
+    pub weight: f64
+}
 
 /// Sums up all the products of each input-weight pair and passes
 /// the result through a sigmoid logistic function.
 pub struct SigmoidNode<'i> {
-    pub inputs: Vec<&'i mut Node>
+    pub inputs: Vec<NodeWeight<'i>>
 }
 
 impl <'i> Node for SigmoidNode<'i> {
     fn calc_activation(&self) -> f64 {
-        0.0
+        let sum = self.inputs.iter().fold(0.0, |acc, x| {
+            acc + x.node.calc_activation() * x.weight
+        });
+
+        let sigmoid_activation= 1.0 / (1.0 + f64::exp(-sum));
+
+        sigmoid_activation
     }
 }
