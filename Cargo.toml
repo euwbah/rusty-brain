@@ -5,3 +5,4 @@ authors = ["euwbah <euwbah@gmail.com>"]
 
 [dependencies]
 rand = "0.5"
+ndarray = "0.12"

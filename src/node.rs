@@ -4,20 +4,25 @@
 
 use std::f64;
 use rand::prelude::*;
+use AM;
 
 /// The generic node trait
 pub trait Node {
     /// 'Activation' refers to the output value of the node
     fn calc_activation(&self) -> f64;
+
+    fn name(&self) -> &str;
 }
 
 pub struct InputNode {
+    pub name: &'static str,
     pub value: f64
 }
 
 impl InputNode {
-    pub fn new(value: f64) -> InputNode {
+    pub fn new(name: &'static str, value: f64) -> InputNode {
         InputNode {
+            name,
             value
         }
     }
@@ -27,18 +32,24 @@ impl Node for InputNode {
     fn calc_activation(&self) -> f64 {
         self.value
     }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 /// Pass this node with const_value = 1 as input to whichever non-input nodes
 /// that requires a bias. Essentially just an InputNode that
 /// has a constant value
 pub struct ConstantNode {
-    pub const_value: f64
+    pub name: &'static str,
+    pub const_value: f64,
 }
 
 impl ConstantNode {
-    pub fn new(const_value: f64) -> ConstantNode {
+    pub fn new(name: &'static str, const_value: f64) -> ConstantNode {
         ConstantNode {
+            name,
             const_value
         }
     }
@@ -48,15 +59,19 @@ impl Node for ConstantNode {
     fn calc_activation(&self) -> f64 {
         self.const_value
     }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
-pub struct NodeWeight<'n> {
-    pub node: &'n Node,
+pub struct NodeWeight {
+    pub node: AM<Node>,
     pub weight: f64
 }
 
-impl <'n> NodeWeight<'n> {
-    pub fn new(node: &'n Node, weight: f64) -> NodeWeight<'n> {
+impl NodeWeight {
+    pub fn new(node: AM<Node>, weight: f64) -> NodeWeight {
         NodeWeight {
             node, weight
         }
@@ -64,47 +79,65 @@ impl <'n> NodeWeight<'n> {
 }
 
 /// Sums up all the products of each input-weight pair
-pub struct BasicNode<'i> {
-    pub inputs: Vec<NodeWeight<'i>>
+pub struct SumNode {
+    pub name: &'static str,
+    pub inputs: Vec<NodeWeight>
 }
 
-impl <'i> BasicNode<'i> {
-    pub fn new() -> BasicNode<'i> {
-        BasicNode {
+impl SumNode {
+    pub fn new(name: &'static str) -> SumNode {
+        SumNode {
+            name,
             inputs: vec![]
         }
     }
 
-    pub fn add_input(&mut self, node: &'i Node) {
+    /// Add an input with a randomly initialized weight ranging from 0 to 1
+    pub fn add_input(&mut self, node: AM<Node>) {
         self.inputs.push( NodeWeight::new(node, thread_rng().gen_range(0.0, 1.0)));
     }
+
+    /// Add an input with a preset weight
+    pub fn add_input_init(&mut self, node: AM<Node>, weight: f64) {
+        self.inputs.push( NodeWeight::new(node, weight));
+    }
+
 }
 
-impl <'i> Node for BasicNode<'i> {
+impl Node for SumNode {
     fn calc_activation(&self) -> f64 {
         let sum = self.inputs.iter().fold(0.0, |acc, x| {
-            acc + x.node.calc_activation() * x.weight
+            acc + x.node.lock().unwrap().calc_activation() * x.weight
         });
 
         sum
+    }
+
+    fn name(&self) -> &str {
+        &self.name
     }
 }
 
 /// Sums up all the products of each input-weight pair and passes
 /// the result through a sigmoid logistic function.
-pub struct SigmoidNode<'i> {
-    pub inputs: Vec<NodeWeight<'i>>
+pub struct SigmoidNode {
+    pub name: &'static str,
+    pub inputs: Vec<NodeWeight>
 }
 
-impl <'i> Node for SigmoidNode<'i> {
+impl Node for SigmoidNode {
     fn calc_activation(&self) -> f64 {
         let sum = self.inputs.iter().fold(0.0, |acc, x| {
-            acc + x.node.calc_activation() * x.weight
+            acc + x.node.lock().unwrap().calc_activation() * x.weight
         });
 
         let sigmoid_activation= 1.0 / (1.0 + f64::exp(-sum));
 
         sigmoid_activation
+    }
+
+    fn name(&self) -> &str {
+        &self.name
     }
 }
 
