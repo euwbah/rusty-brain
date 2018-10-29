@@ -15,4 +15,8 @@ impl Network {
             output_layer
         }
     }
+
+    pub fn calc_avg_loss(&self) {
+
+    }
 }

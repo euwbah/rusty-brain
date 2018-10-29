@@ -56,16 +56,25 @@ impl InputLayer {
 pub struct OutputLayer {
     pub output_nodes: Vec<AM<Node>>,
     pub training_ground_truths: Array2<f64>,
-    pub loss_function: Box<Fn(&Vec<AM<Node>>, &[f64]) -> f64>,
+    pub loss_function: Box<Fn(Vec<f64>, Vec<f64>) -> f64>,
 }
 
 impl OutputLayer {
-    /// `training_vals` is a flattened array of training ground truth values
-    /// `training_vals[0 .. nodes.len()]` represents one single ground truth value
+    /// `_training_ground_truths` is a flattened array of training ground truth values
+    /// `_training_ground_truths[0 .. nodes.len()]` represents one single ground truth value
     /// where each of the values corresponds to the output nodes, according to the same index.
+    ///
+    /// `loss_function` is a function that accepts two params:
+    /// `| output_node_activations, expected_ground_truths |`.
+    /// `output_node_activations` is a `Vec<f64>` that lists the activation values of the output nodes
+    /// in the same index order as `self.output_nodes`.
+    /// `expected_ground_truths` represents the correct activation values of each output node
+    /// for any particular iteration in the same index order as `self.output_nodes`.
+    /// The `loss_function` should calculate and return the loss score based on the two parameters provided.
+    ///
     pub fn new(nodes: &Vec<AM<Node>>,
-               training_vals: &[f64],
-               loss_function: Box<Fn(&Vec<AM<Node>>, &[f64]) -> f64>) -> OutputLayer {
+               _training_ground_truths: &[f64],
+               loss_function: Box<Fn(Vec<f64>, Vec<f64>) -> f64>) -> OutputLayer {
         let mut output_nodes = vec![];
         for node in nodes {
             output_nodes.push(node.clone())
@@ -73,12 +82,12 @@ impl OutputLayer {
 
         let node_count = output_nodes.len();
 
-        assert!(training_vals.len() % node_count == 0, "training_vals.len() must be a multiple of nodes.len()!");
+        assert!(_training_ground_truths.len() % node_count == 0, "training_vals.len() must be a multiple of nodes.len()!");
 
         let mut training_ground_truths =
-            Array2::<f64>::zeros((training_vals.len() / node_count, node_count));
+            Array2::<f64>::zeros((_training_ground_truths.len() / node_count, node_count));
 
-        for (idx, val) in training_vals.iter().enumerate() {
+        for (idx, val) in _training_ground_truths.iter().enumerate() {
             let row = idx / node_count;
             let column = idx % node_count;
 
@@ -93,13 +102,23 @@ impl OutputLayer {
     }
 
     /// Calculates the loss of one particular iteration
-    pub fn calculate_iter_loss(&self, iter: usize) {
+    pub fn calculate_iter_loss(&self, iter: usize) -> f64 {
         let vals = self.training_ground_truths.slice(s![iter, ..]);
+        let mut output_node_activations = vec![];
+
         for (idx, node_ground_truth_val) in vals.iter().enumerate() {
             let mut node = self.output_nodes[idx].lock().unwrap();
 
             let activation = node.calc_activation();
+            output_node_activations.push(activation);
             println!("activation: {}, ground: {}", activation, node_ground_truth_val);
         }
+
+        let mut expected_ground_truths: Vec<f64> = vals.to_vec();
+
+        assert_eq!(output_node_activations.len(), expected_ground_truths.len(), "Unexpected error!!??");
+
+        (self.loss_function)(output_node_activations, expected_ground_truths)
+
     }
 }

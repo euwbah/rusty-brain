@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use node::*;
 use layers::InputLayer;
 use rand::Rng;
+use layers::OutputLayer;
 
 /// Arc Mutex helpers because garbage collection
 pub type AM<T> = Arc<Mutex<T>>;
@@ -44,13 +45,33 @@ fn main() {
             &training_vals,
         );
 
-    let mut s1 = SumNode::new("s1");
+    let mut s1 = am(SumNode::new("s1"));
 
-    s1.add_input_init(i1.clone(), 1.0);
-    s1.add_input_init(i2.clone(), 0.2);
+    {
+        let mut s1 = s1.lock().unwrap();
+        s1.add_input_init(i1.clone(), 1.0);
+        s1.add_input_init(i2.clone(), 0.2);
 
-    for i in 0..10 {
-        input_layer.set_iteration(i);
-        println!("s1 activation: {}", s1.calc_activation());
+        for i in 0..10 {
+            input_layer.set_iteration(i);
+            println!("s1 activation: {}", s1.calc_activation());
+        }
     }
+
+    let mut output_layer =
+        OutputLayer::new(&vec![s1], &training_vals,
+        Box::new(|node_activations: Vec<f64>, ground_truths: Vec<f64> | {
+            // Root Mean Square Error
+            let mut rmse = 0.0;
+
+            let actual_expected = node_activations.iter().zip(ground_truths.iter());
+
+            for (actual, expected) in actual_expected {
+                rmse += f64::powi(actual - expected, 2);
+            }
+
+            rmse
+        }));
+
+
 }
