@@ -102,6 +102,8 @@ impl OutputLayer {
     }
 
     /// Calculates the loss of one particular iteration
+    /// Make sure `InputLayer.set_iteration(iter)` is called with the same `iter` value first!
+    ///
     pub fn calculate_iter_loss(&self, iter: usize) -> f64 {
         let vals = self.training_ground_truths.slice(s![iter, ..]);
         let mut output_node_activations = vec![];

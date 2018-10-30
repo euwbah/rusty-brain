@@ -11,7 +11,17 @@ pub trait Node {
     /// 'Activation' refers to the output value of the node
     fn calc_activation(&self) -> f64;
 
+    /// Retrieve a node's unique identifier
     fn name(&self) -> &str;
+
+    /// Updates weights of input nodes (if any) based on `gradient` and input node value.
+    ///
+    /// Then, recurse for each child input node with the `gradient` parameter set to
+    /// d(loss) / d(child input node activation output).
+    ///
+    /// `gradient` represents the value of d(loss) / d(node activation output).
+    /// (i.e., how much the loss will change if this node's output were to change by some small value d)
+    fn train(&mut self, gradient: f64);
 }
 
 pub struct InputNode {
@@ -35,6 +45,10 @@ impl Node for InputNode {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn train(&mut self, gradient: f64) {
+        // Nothing to train
     }
 }
 
@@ -63,6 +77,10 @@ impl Node for ConstantNode {
     fn name(&self) -> &str {
         &self.name
     }
+
+    fn train(&mut self, gradient: f64) {
+        // Nothing to train
+    }
 }
 
 pub struct NodeWeight {
@@ -75,6 +93,10 @@ impl NodeWeight {
         NodeWeight {
             node, weight
         }
+    }
+
+    pub fn calc_weighted_activation(&self) -> f64 {
+        self.node.lock().unwrap().calc_activation() * self.weight
     }
 }
 
@@ -92,9 +114,9 @@ impl SumNode {
         }
     }
 
-    /// Add an input with a randomly initialized weight ranging from 0 to 1
+    /// Add an input with a randomly initialized weight ranging from -1 to 1
     pub fn add_input(&mut self, node: AM<Node>) {
-        self.inputs.push( NodeWeight::new(node, thread_rng().gen_range(0.0, 1.0)));
+        self.inputs.push( NodeWeight::new(node, thread_rng().gen_range(-1.0, 1.0)));
     }
 
     /// Add an input with a preset weight
@@ -106,8 +128,8 @@ impl SumNode {
 
 impl Node for SumNode {
     fn calc_activation(&self) -> f64 {
-        let sum = self.inputs.iter().fold(0.0, |acc, x| {
-            acc + x.node.lock().unwrap().calc_activation() * x.weight
+        let sum = self.inputs.iter().fold(0.0, |acc, node_weight| {
+            acc + node_weight.calc_weighted_activation()
         });
 
         sum
@@ -115,6 +137,17 @@ impl Node for SumNode {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Updates weights of input nodes (if any) based on `gradient` and input node value.
+    ///
+    /// The initial call should start from nodes in the output layer, with the initial `gradient`
+    /// parameter set to d(loss) / d(output node activation)
+    ///
+    /// `gradient` represents the value of d(loss) / d(node activation output).
+    /// (i.e., how much the loss will change if this node's output were to change by some small value d)
+    fn train(&mut self, gradient: f64) {
+
     }
 }
 
@@ -138,6 +171,10 @@ impl Node for SigmoidNode {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn train(&mut self, gradient: f64) {
+
     }
 }
 

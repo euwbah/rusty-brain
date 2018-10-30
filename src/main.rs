@@ -7,10 +7,11 @@ extern crate rand;
 extern crate ndarray;
 
 use std::sync::{Arc, Mutex};
-use node::*;
-use layers::InputLayer;
 use rand::Rng;
-use layers::OutputLayer;
+
+use node::*;
+use layers::{InputLayer, OutputLayer};
+use network::Network;
 
 /// Arc Mutex helpers because garbage collection
 pub type AM<T> = Arc<Mutex<T>>;
@@ -58,20 +59,26 @@ fn main() {
         }
     }
 
+    input_layer.set_iteration(0);
+
     let mut output_layer =
-        OutputLayer::new(&vec![s1], &training_vals,
-        Box::new(|node_activations: Vec<f64>, ground_truths: Vec<f64> | {
-            // Root Mean Square Error
-            let mut rmse = 0.0;
+        OutputLayer::new(
+            &vec![s1], &training_vals,
 
-            let actual_expected = node_activations.iter().zip(ground_truths.iter());
+            // Loss Function: Root Mean Square Error
+            Box::new(|node_activations: Vec<f64>, ground_truths: Vec<f64>| {
+                let mut rmse = 0.0;
 
-            for (actual, expected) in actual_expected {
-                rmse += f64::powi(actual - expected, 2);
-            }
+                let actual_expected = node_activations.iter().zip(ground_truths.iter());
 
-            rmse
-        }));
+                for (actual, expected) in actual_expected {
+                    rmse += f64::powi(actual - expected, 2);
+                }
 
+                rmse
+            }));
 
+    output_layer.calculate_iter_loss(0);
+
+    let network = Network::new(input_layer, output_layer);
 }
