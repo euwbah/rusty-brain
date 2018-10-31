@@ -48,10 +48,10 @@ fn main() {
 
     let mut s1 = am(SumNode::new("s1"));
 
+    connect_init(i1.clone(), s1.clone(), 1.0);
+    connect_init(i2.clone(), s1.clone(), 0.2);
     {
         let mut s1 = s1.lock().unwrap();
-        s1.add_input_init(i1.clone(), 1.0);
-        s1.add_input_init(i2.clone(), 0.2);
 
         for i in 0..10 {
             input_layer.set_iteration(i);
@@ -78,7 +78,9 @@ fn main() {
                 rmse
             }));
 
-    output_layer.calculate_iter_loss(0);
+    let iter0_loss = output_layer.calculate_iter_loss(0);
+
+    println!("iter0_loss: {}", iter0_loss);
 
     let network = Network::new(input_layer, output_layer);
 }

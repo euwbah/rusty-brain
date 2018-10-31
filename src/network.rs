@@ -33,6 +33,7 @@ pub struct Network {
 
 impl Network {
     pub fn new(input_layer: InputLayer, output_layer: OutputLayer) -> Network {
+
         Network {
             input_layer,
             output_layer,
@@ -46,6 +47,12 @@ impl Network {
 
     /// Calculate the average loss on the entire training dataset
     pub fn calc_avg_training_loss(&self) {
+
+    }
+
+    /// Traverse through all the nodes in the network and evaluate d(loss) / d(node activation)
+    /// for each one of them.
+    fn evaluate_gradients(&self) {
 
     }
 
