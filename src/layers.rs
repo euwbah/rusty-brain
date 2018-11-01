@@ -40,10 +40,17 @@ impl InputLayer {
         }
     }
 
+    /// Assigns the input_nodes input values based on the iteration.
+    ///
+    /// The `iter` parameter is a ring which wraps around 0 and `self.training_inputs.len()`
+    /// E.g. assuming iter is 5, and `training_inputs` has 3 vectors of node input values,
+    /// the nodes will be assigned to the values given by index 2 (5 % 3) of `training_inputs`.
     pub fn set_iteration(&mut self, iter: usize) {
         println!("Setting input iteration: {}", iter);
 
-        let vals = self.training_inputs.slice(s![iter, ..]);
+        let idx = iter % self.training_inputs.len();
+
+        let vals = self.training_inputs.slice(s![idx, ..]);
         for (idx, val) in vals.iter().enumerate() {
             let mut node = self.input_nodes[idx].lock().unwrap();
 
@@ -104,8 +111,14 @@ impl OutputLayer {
     /// Calculates the loss of one particular iteration
     /// Make sure `InputLayer.set_iteration(iter)` is called with the same `iter` value first!
     ///
+    /// The `iter` parameter is a ring which wraps around 0 and `self.training_inputs.len()`
+    /// E.g. assuming iter is 5, and `training_inputs` has 3 vectors of node input values,
+    /// the nodes will be assigned to the values given by index 2 (5 % 3) of `training_inputs`.
     pub fn calculate_iter_loss(&self, iter: usize) -> f64 {
-        let vals = self.training_ground_truths.slice(s![iter, ..]);
+
+        let idx = iter % self.training_ground_truths.len();
+
+        let vals = self.training_ground_truths.slice(s![idx, ..]);
         let mut output_node_activations = vec![];
 
         for (idx, node_ground_truth_val) in vals.iter().enumerate() {

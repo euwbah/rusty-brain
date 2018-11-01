@@ -2,6 +2,8 @@ mod network;
 mod node;
 mod layers;
 
+#[macro_use]
+extern crate lazy_static;
 extern crate rand;
 #[macro_use(s)]
 extern crate ndarray;
@@ -37,8 +39,8 @@ fn main() {
     }
 
     // Make inputs
-    let mut i1 = am(InputNode::new("i1", 0.6));
-    let mut i2 = am(InputNode::new("i2", 1.0));
+    let mut i1 = InputNode::new("i1", 0.6);
+    let mut i2 = InputNode::new("i2", 1.0);
 
     let mut input_layer =
         InputLayer::new(
@@ -46,7 +48,7 @@ fn main() {
             &training_vals,
         );
 
-    let mut s1 = am(SumNode::new("s1"));
+    let mut s1 = SumNode::new("s1");
 
     connect_init(i1.clone(), s1.clone(), 1.0);
     connect_init(i2.clone(), s1.clone(), 0.2);
