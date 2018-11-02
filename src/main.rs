@@ -52,16 +52,6 @@ fn main() {
 
     connect_init(i1.clone(), s1.clone(), 1.0);
     connect_init(i2.clone(), s1.clone(), 0.2);
-    {
-        let mut s1 = s1.lock().unwrap();
-
-        for i in 0..10 {
-            input_layer.set_iteration(i);
-            println!("s1 activation: {}", s1.calc_activation());
-        }
-    }
-
-    input_layer.set_iteration(0);
 
     let mut output_layer =
         OutputLayer::new(
@@ -80,9 +70,9 @@ fn main() {
                 rmse
             }));
 
-    let iter0_loss = output_layer.calculate_iter_loss(0);
-
-    println!("iter0_loss: {}", iter0_loss);
-
     let network = Network::new(input_layer, output_layer);
+
+    for iter in 0..10i32 {
+        // network.evaluate_gradients(iter, )
+    }
 }

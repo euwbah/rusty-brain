@@ -1,5 +1,7 @@
 use layers::InputLayer;
 use layers::OutputLayer;
+use node::DerivativeCalculationParams;
+use node::Node;
 
 /// Default usage:
 ///
@@ -51,9 +53,26 @@ impl Network {
     }
 
     /// Traverse through all the nodes in the network and evaluate d(loss) / d(node activation)
-    /// for each one of them.
-    fn evaluate_gradients(&self) {
+    /// for each one of them, storing them in the `TrainingState.dloss` field which can be
+    /// retrieved with `Node.get_training_state()` or `Node.get_training_state_mut()`.
+    ///
+    /// `iteration`: The training iteration.
+    /// `output_nodes_loss_fn_derivative`: Fn(Node name, node activation) -> derivative partial term
+    pub fn evaluate_gradients(&mut self, iteration: i32,
+                          output_nodes_loss_fn_derivative: impl Fn(&str, f64) -> f64 + Copy + 'static) {
 
+        self.input_layer.set_iteration(iteration);
+
+        let derivative_calc_params = DerivativeCalculationParams::new(
+            iteration,
+            self.output_layer.output_nodes
+                .iter().map(|x| x.lock().unwrap().name().to_string()).collect(),
+            output_nodes_loss_fn_derivative
+        );
+        for n in &self.input_layer.input_nodes {
+            let mut n = n.lock().unwrap();
+            n.calc_activation_derivative(&derivative_calc_params);
+        }
     }
 
     /// 1 epoch = go through all of the training data once.
@@ -61,7 +80,7 @@ impl Network {
         // Iteration represents the training sample index
 
         for iter in 0..self.input_layer.training_inputs.len() {
-            self.input_layer.set_iteration(iter);
+            self.input_layer.set_iteration(iter as i32);
 
         }
     }

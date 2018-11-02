@@ -45,10 +45,10 @@ impl InputLayer {
     /// The `iter` parameter is a ring which wraps around 0 and `self.training_inputs.len()`
     /// E.g. assuming iter is 5, and `training_inputs` has 3 vectors of node input values,
     /// the nodes will be assigned to the values given by index 2 (5 % 3) of `training_inputs`.
-    pub fn set_iteration(&mut self, iter: usize) {
+    pub fn set_iteration(&mut self, iter: i32) {
         println!("Setting input iteration: {}", iter);
 
-        let idx = iter % self.training_inputs.len();
+        let idx = iter % (self.training_inputs.len() as i32);
 
         let vals = self.training_inputs.slice(s![idx, ..]);
         for (idx, val) in vals.iter().enumerate() {
@@ -63,6 +63,7 @@ impl InputLayer {
 pub struct OutputLayer {
     pub output_nodes: Vec<AM<Node>>,
     pub training_ground_truths: Array2<f64>,
+    /// Fn(List of current activation values, list of corresponding ground truth values) -> Loss score
     pub loss_function: Box<Fn(Vec<f64>, Vec<f64>) -> f64>,
 }
 
@@ -104,7 +105,7 @@ impl OutputLayer {
         OutputLayer {
             output_nodes,
             training_ground_truths,
-            loss_function
+            loss_function,
         }
     }
 
@@ -115,7 +116,6 @@ impl OutputLayer {
     /// E.g. assuming iter is 5, and `training_inputs` has 3 vectors of node input values,
     /// the nodes will be assigned to the values given by index 2 (5 % 3) of `training_inputs`.
     pub fn calculate_iter_loss(&self, iter: usize) -> f64 {
-
         let idx = iter % self.training_ground_truths.len();
 
         let vals = self.training_ground_truths.slice(s![idx, ..]);
@@ -134,6 +134,5 @@ impl OutputLayer {
         assert_eq!(output_node_activations.len(), expected_ground_truths.len(), "Unexpected error!!??");
 
         (self.loss_function)(output_node_activations, expected_ground_truths)
-
     }
 }

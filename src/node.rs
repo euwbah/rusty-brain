@@ -3,11 +3,11 @@
 //!
 
 use std::f64;
+use std::sync::Mutex;
+use std::collections::HashMap;
 use rand::prelude::*;
 use AM;
 use am;
-use std::sync::Mutex;
-use std::collections::HashMap;
 
 lazy_static! {
     /// Used to prevent duplicate node ids.
@@ -23,7 +23,7 @@ fn register_node(name: &str, node: AM<Node + Send>) {
 
 /// This object is passed as a constant parameter through the recursive
 /// `calc_activation_derivative` function.
-pub struct DerivativeCalculationState {
+pub struct DerivativeCalculationParams {
     /// The calculation iteration
     calc_derivative_iteration: i32,
     /// Node name: partial derivative of loss function
@@ -35,7 +35,28 @@ pub struct DerivativeCalculationState {
     /// can be simply expressed as f'(a), f'(b), f'(c), etc...
     ///
     /// The values in this hashmap represent the functions f'(a), f'(b), f'(c), etc...
-    output_nodes_loss_fn_derivative: HashMap<String, Box<Fn(f64) -> f64>>
+    output_nodes_loss_fn_derivative: HashMap<String, Box<Fn(f64) -> f64>>,
+}
+
+impl DerivativeCalculationParams {
+    pub fn new<F>(calc_derivative_iteration: i32,
+               output_layer_node_names: Vec<String>,
+               derivative_fn: F) -> DerivativeCalculationParams
+    where F: 'static + Copy + Fn(&str, f64) -> f64 {
+        let mut output_nodes_loss_fn_derivative: HashMap<String, Box<Fn(f64) -> f64>> = HashMap::new();
+
+        for n in output_layer_node_names {
+            let n_clone = n.clone();
+            output_nodes_loss_fn_derivative.insert(
+                n.clone(),
+            Box::new(move |activation| derivative_fn(n_clone.as_str(), activation)));
+        }
+
+        DerivativeCalculationParams {
+            calc_derivative_iteration,
+            output_nodes_loss_fn_derivative
+        }
+    }
 }
 
 /// The generic node trait
@@ -57,7 +78,9 @@ pub trait Node {
     fn get_last_calc_activation(&self) -> f64;
 
     /// Returns (Iteration no. of last derivative calculation, last derivative calculation value)
-    fn get_last_derivative_calculation(&mut self) -> (&mut i32, &mut f64);
+    fn get_training_state(&self) -> &TrainingState;
+
+    fn get_training_state_mut(&mut self) -> &mut TrainingState;
 
     /// Calculates the derivative of the loss function against
     /// this node's activation value (as per `get_last_calc_activation()`), then stores the
@@ -68,15 +91,13 @@ pub trait Node {
     /// Of course, this will lead to numerous unnecessary recalculations of nodes that share the
     /// same set of multiple children (such as in fully-connected networks)
     ///
-    /// As such, a derivative calculation iteration counter is stored in the DerivativeCalculationState
-    /// parameter which should be compared to a local DerivativeCalculationState store which updates per call,
+    /// As such, a derivative calculation iteration counter is stored in the DerivativeCalculationParams
+    /// parameter which should be compared to a local DerivativeCalculationParams store which updates per call,
     /// if this function has been called on the same object twice, the calculation iteration id
     /// would have been found to be the same and the derivative calculation and recursion of
     /// its output nodes can be skipped.
-    fn calc_activation_derivative(&mut self, calc_state: &DerivativeCalculationState) -> f64 {
-        let (mut last_iter, mut dloss) = self.get_last_derivative_calculation();
-
-        if last_iter != calc_state.calc_derivative_iteration {
+    fn calc_activation_derivative(&mut self, calc_state: &DerivativeCalculationParams) -> f64 {
+        if self.get_training_state().calc_derivative_iteration != calc_state.calc_derivative_iteration {
             /*
                 Simply sum up partial derivatives of each output node.
                 Let x            -> this activation
@@ -85,26 +106,37 @@ pub trait Node {
                 d(loss) / d(self.activation) = da/dx * dL/da + db/dx * dL/db + dc/dx * dL/dc + etc...
             */
 
-            *dloss = 0.0;
+            self.get_training_state_mut().dloss = 0.0;
 
-            if self.output_nodes().len() != 0 {
-                for o in &self.outputs {
+            let output_nodes_count = {
+                self.output_nodes().len()
+            };
+
+            if output_nodes_count != 0 {
+                let mut final_dloss = 0.0;
+                for o in self.output_nodes() {
                     let mut o = o.lock().unwrap();
-                    self.dloss +=
-                        o.calc_derivative_against(self) * o.calc_activation_derivative(&calc_state);
+                    let dloss_partial_derivative =
+                        o.calc_derivative_against(self.name()) * o.calc_activation_derivative(&calc_state);
+
+                    final_dloss += dloss_partial_derivative;
                 }
+
+                self.get_training_state_mut().dloss = final_dloss;
             } else if let Some(f) = calc_state.output_nodes_loss_fn_derivative.get(self.name()) {
                 // If there are no output nodes, check calc_state if this node is an output node
                 // with a given partial loss function
 
-                self.dloss = f(self.get_last_calc_activation());
+                self.get_training_state_mut().dloss = f(self.get_last_calc_activation());
             } else {
                 println!("WARNING: [{}] Last layer node found that doesn't have a registered loss \
                 function partial derivative, defaulting gradient to 0.", self.name());
             }
         }
 
-        self.dloss
+        println!("dLoss/d[{}]: {}", self.name(), self.get_training_state().dloss);
+
+        self.get_training_state_mut().dloss
     }
 
     /// Calculates the value of d(self activation) / d(input_node activation)
@@ -112,7 +144,7 @@ pub trait Node {
     ///
     /// This is the consumer function for the recursive `calc_activation_derivative` which
     /// steps the recursion forward.
-    fn calc_derivative_against(&self, input_node: &Node) -> f64;
+    fn calc_derivative_against(&self, input_node_name: &str) -> f64;
 
     /// Updates weights of input nodes (if any) based on `gradient` and input node value.
     ///
@@ -163,14 +195,30 @@ pub fn connect_init(a: AM<Node + Send>, b: AM<Node + Send>, weight: f64) {
     b.lock().unwrap().add_input_node_init(a, weight);
 }
 
+/// Contains stateful data used by all nodes during training
+struct TrainingState {
+    /// The value of `DerivativeCalculationParams.calc_derivative_iteration` when
+    /// `Node.calc_activation_derivative()` was last called.
+    calc_derivative_iteration: i32,
+    /// The last value of d(loss)/d(this activation) as calculated by
+    /// `Node.calc_activation_derivative()`.
+    dloss: f64,
+}
+
+impl Default for TrainingState {
+    fn default() -> Self {
+        TrainingState {
+            calc_derivative_iteration: -1,
+            dloss: 0.0,
+        }
+    }
+}
+
 pub struct InputNode {
     pub name: String,
     pub value: f64,
     outputs: Vec<AM<Node + Send>>,
-    calc_derivative_iteration: i32,
-    /// The last value of d(loss)/d(this activation) as calculated by
-    /// calc_activation_derivative.
-    dloss: f64,
+    training_state: TrainingState,
     /// Fighting borrow checker
     empty_hashmap: AM<HashMap<String, NodeWeight>>,
 }
@@ -182,8 +230,7 @@ impl InputNode {
             name,
             value,
             outputs: vec![],
-            calc_derivative_iteration: -1,
-            dloss: 0.0,
+            training_state: Default::default(),
             empty_hashmap: am(HashMap::new()),
         };
 
@@ -208,11 +255,15 @@ impl Node for InputNode {
         self.value
     }
 
-    fn get_last_derivative_calculation(&mut self) -> (&mut i32, &mut f64) {
-        (&mut self.calc_derivative_iteration, &mut self.dloss)
+    fn get_training_state(&self) -> &TrainingState {
+        &self.training_state
     }
 
-    fn calc_derivative_against(&self, input_node: &Node) -> f64 {
+    fn get_training_state_mut(&mut self) -> &mut TrainingState {
+        &mut self.training_state
+    }
+
+    fn calc_derivative_against(&self, input_node_name: &str) -> f64 {
         panic!("Attempted to calculate derivative against an InputNode");
     }
 
@@ -252,10 +303,7 @@ pub struct ConstantNode {
     pub name: String,
     pub const_value: f64,
     outputs: Vec<AM<Node + Send>>,
-    calc_derivative_iteration: i32,
-    /// The last value of d(loss)/d(this activation) as calculated by
-    /// calc_activation_derivative.
-    dloss: f64,
+    training_state: TrainingState,
     /// Fighting borrow checker
     empty_hashmap: AM<HashMap<String, NodeWeight>>,
 }
@@ -266,8 +314,7 @@ impl ConstantNode {
             name: name.to_string(),
             const_value,
             outputs: vec![],
-            calc_derivative_iteration: -1,
-            dloss: 0.0,
+            training_state: Default::default(),
             empty_hashmap: am(HashMap::new()),
         };
         let node = am(node);
@@ -291,11 +338,15 @@ impl Node for ConstantNode {
         self.const_value
     }
 
-    fn get_last_derivative_calculation(&mut self) -> (&mut i32, &mut f64) {
-        (&mut self.calc_derivative_iteration, &mut self.dloss)
+    fn get_training_state(&self) -> &TrainingState {
+        &self.training_state
     }
 
-    fn calc_derivative_against(&self, input_node: &Node) -> f64 {
+    fn get_training_state_mut(&mut self) -> &mut TrainingState {
+        &mut self.training_state
+    }
+
+    fn calc_derivative_against(&self, input_node_name: &str) -> f64 {
         panic!("Attempted to calculate derivative against a ConstantNode!");
     }
 
@@ -355,6 +406,7 @@ pub struct SumNode {
     /// Stores the last value returned by `calc_activation()`.
     /// Only updated when `calc_activation()` is called.
     activation: f64,
+    training_state: TrainingState,
 }
 
 impl SumNode {
@@ -364,6 +416,7 @@ impl SumNode {
             inputs: am(HashMap::new()),
             outputs: vec![],
             activation: 0.0,
+            training_state: Default::default(),
         };
 
         let node = am(node);
@@ -395,16 +448,20 @@ impl Node for SumNode {
         self.activation
     }
 
-    fn get_last_derivative_calculation(&mut self) -> (&mut i32, &mut f64) {
-        (&mut self.calc_derivative_iteration, &mut self.dloss)
+    fn get_training_state(&self) -> &TrainingState {
+        &self.training_state
     }
 
-    fn calc_derivative_against(&self, input_node: &Node) -> f64 {
+    fn get_training_state_mut(&mut self) -> &mut TrainingState {
+        &mut self.training_state
+    }
+
+    fn calc_derivative_against(&self, input_node_name: &str) -> f64 {
         // since there is no activation function, derivative is just
         // d(weight * input_node activation) / d(input_node activation), i.e. just weight.
 
-        self.inputs.lock().unwrap().get(input_node.name())
-            .expect(format!("[{}] is not an input of [{}]", input_node.name(), self.name).as_str())
+        self.inputs.lock().unwrap().get(input_node_name)
+            .expect(format!("[{}] is not an input of [{}]", input_node_name, self.name).as_str())
             .weight
     }
 
@@ -453,6 +510,7 @@ pub struct SigmoidNode {
     /// Stores the last value returned by `calc_activation()`.
     /// Only updated when `calc_activation()` is called.
     activation: f64,
+    training_state: TrainingState,
 }
 
 impl Node for SigmoidNode {
@@ -478,11 +536,15 @@ impl Node for SigmoidNode {
         self.activation
     }
 
-    fn get_last_derivative_calculation(&mut self) -> (&mut i32, &mut f64) {
-        (&mut self.calc_derivative_iteration, &mut self.dloss)
+    fn get_training_state(&self) -> &TrainingState {
+        &self.training_state
     }
 
-    fn calc_derivative_against(&self, input_node: &Node) -> f64 {
+    fn get_training_state_mut(&mut self) -> &mut TrainingState {
+        &mut self.training_state
+    }
+
+    fn calc_derivative_against(&self, input_node_name: &str) -> f64 {
         // let z -> input_node activation * connection weight
         // hence, dz/d(input activation) = w
         // let a -> sigmoid(z)
@@ -491,8 +553,8 @@ impl Node for SigmoidNode {
         //                                 = sigmoid(z)(1 - sigmoid(z)) * connection weight
 
         let w =
-            self.inputs.lock().unwrap().get(input_node.name())
-                .expect(format!("[{}] is not an input of [{}]", input_node.name(), self.name).as_str())
+            self.inputs.lock().unwrap().get(input_node_name)
+                .expect(format!("[{}] is not an input of [{}]", input_node_name, self.name).as_str())
                 .weight;
 
         let a = self.get_last_calc_activation();
@@ -523,7 +585,7 @@ impl Node for SigmoidNode {
     fn add_input_node_init(&mut self, input_node: AM<Node + Send>, weight: f64) {
         let clone = input_node.clone();
         self.inputs.lock().unwrap().insert(clone.lock().unwrap().name().to_string(),
-                           NodeWeight::new(input_node, weight));
+                                           NodeWeight::new(input_node, weight));
     }
 
     fn add_output_node(&mut self, node: AM<Node + Send>) {
