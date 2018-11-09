@@ -55,7 +55,7 @@ fn main() {
 
     let mut output_layer =
         OutputLayer::new(
-            &vec![s1], &training_vals,
+            &vec![s1], &ground_truths,
 
             // Loss Function: Root Mean Square Error
             Box::new(|node_activations: Vec<f64>, ground_truths: Vec<f64>| {
@@ -70,9 +70,26 @@ fn main() {
                 rmse
             }));
 
-    let network = Network::new(input_layer, output_layer);
+    let mut network = Network::new(input_layer, output_layer);
 
-    for iter in 0..10i32 {
-        // network.evaluate_gradients(iter, )
+    for iter in 0..=10 {
+        network.input_layer.set_iteration(iter);
+        let loss = network.output_layer.calculate_iter_loss(iter);
+        println!("Iteration {}: loss = {}", iter, loss);
+        let gt = network.output_layer.get_ground_truths(iter);
+
+        network.evaluate_gradients(
+            iter as i32,
+        move |node_name| {
+            // Lambda to calculate one derivative term of loss of one particular node.
+            // This derivative function is assuming the RMSE function is used.
+            // RMSE = sigma((node, k=10) ==> RMSE(node))
+            // RMSE(node) = (node.activation - node.ground_truth) ^ 2
+            // RMSE'(node) = 2 * (node.activation - node.ground_truth)
+            let nodes = NODES.lock().unwrap();
+            let node = nodes.get(node_name).unwrap();
+            let node = node.lock().unwrap();
+            2.0 * (node.get_last_calc_activation() - gt.get(node_name).unwrap())
+        })
     }
 }

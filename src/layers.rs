@@ -4,6 +4,7 @@ use ndarray::prelude::Array2;
 use ndarray::Axis;
 use ndarray::ArrayBase;
 use node::InputNode;
+use std::collections::HashMap;
 
 pub struct InputLayer {
     pub input_nodes: Vec<AM<InputNode>>,
@@ -45,10 +46,10 @@ impl InputLayer {
     /// The `iter` parameter is a ring which wraps around 0 and `self.training_inputs.len()`
     /// E.g. assuming iter is 5, and `training_inputs` has 3 vectors of node input values,
     /// the nodes will be assigned to the values given by index 2 (5 % 3) of `training_inputs`.
-    pub fn set_iteration(&mut self, iter: i32) {
+    pub fn set_iteration(&mut self, iter: usize) {
         println!("Setting input iteration: {}", iter);
 
-        let idx = iter % (self.training_inputs.len() as i32);
+        let idx = iter % self.training_inputs.len();
 
         let vals = self.training_inputs.slice(s![idx, ..]);
         for (idx, val) in vals.iter().enumerate() {
@@ -62,6 +63,7 @@ impl InputLayer {
 
 pub struct OutputLayer {
     pub output_nodes: Vec<AM<Node>>,
+    pub node_name_to_index_map: HashMap<String, usize>,
     pub training_ground_truths: Array2<f64>,
     /// Fn(List of current activation values, list of corresponding ground truth values) -> Loss score
     pub loss_function: Box<Fn(Vec<f64>, Vec<f64>) -> f64>,
@@ -84,8 +86,12 @@ impl OutputLayer {
                _training_ground_truths: &[f64],
                loss_function: Box<Fn(Vec<f64>, Vec<f64>) -> f64>) -> OutputLayer {
         let mut output_nodes = vec![];
-        for node in nodes {
-            output_nodes.push(node.clone())
+        let mut node_name_to_index_map = HashMap::new();
+
+        for (idx, node) in nodes.iter().enumerate() {
+            output_nodes.push(node.clone());
+            let node = node.lock().unwrap();
+            node_name_to_index_map.insert(node.name().to_string(), idx);
         }
 
         let node_count = output_nodes.len();
@@ -104,6 +110,7 @@ impl OutputLayer {
 
         OutputLayer {
             output_nodes,
+            node_name_to_index_map,
             training_ground_truths,
             loss_function,
         }
@@ -134,5 +141,21 @@ impl OutputLayer {
         assert_eq!(output_node_activations.len(), expected_ground_truths.len(), "Unexpected error!!??");
 
         (self.loss_function)(output_node_activations, expected_ground_truths)
+    }
+
+    /// Get a single training ground truth value for one node at a particular iteration
+    pub fn get_ground_truth(&self, iter: usize, node_name: &str) -> f64 {
+        self.training_ground_truths[[iter, *self.node_name_to_index_map.get(node_name).unwrap()]]
+    }
+
+    /// Get a map of (node name, ground truth) KVPs for a particular iteration
+    pub fn get_ground_truths(&self, iter: usize) -> HashMap<String, f64> {
+        let mut map = HashMap::new();
+        let a = self.training_ground_truths.slice(s![iter, ..]);
+        for (idx, node) in self.output_nodes.iter().enumerate() {
+            map.insert(node.lock().unwrap().name().to_string(), a[idx]);
+        }
+
+        map
     }
 }

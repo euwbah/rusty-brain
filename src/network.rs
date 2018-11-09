@@ -59,9 +59,9 @@ impl Network {
     /// `iteration`: The training iteration.
     /// `output_nodes_loss_fn_derivative`: Fn(Node name, node activation) -> derivative partial term
     pub fn evaluate_gradients(&mut self, iteration: i32,
-                          output_nodes_loss_fn_derivative: impl Fn(&str, f64) -> f64 + Copy + 'static) {
+                          output_nodes_loss_fn_derivative: impl Fn(&str) -> f64 + 'static) {
 
-        self.input_layer.set_iteration(iteration);
+        self.input_layer.set_iteration(iteration as usize);
 
         let derivative_calc_params = DerivativeCalculationParams::new(
             iteration,
@@ -80,7 +80,7 @@ impl Network {
         // Iteration represents the training sample index
 
         for iter in 0..self.input_layer.training_inputs.len() {
-            self.input_layer.set_iteration(iter as i32);
+            self.input_layer.set_iteration(iter);
 
         }
     }

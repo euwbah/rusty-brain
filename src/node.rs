@@ -10,13 +10,13 @@ use AM;
 use am;
 
 lazy_static! {
-    /// Used to prevent duplicate node ids.
-    static ref NODE_IDS: Mutex<HashMap<String, AM<Node + Send>>> = Mutex::new(HashMap::new());
+    /// Global lookup for nodes
+    pub static ref NODES: Mutex<HashMap<String, AM<Node + Send>>> = Mutex::new(HashMap::new());
 }
 
 /// Call this in the constructor of nodes
 fn register_node(name: &str, node: AM<Node + Send>) {
-    if let Some(_) = NODE_IDS.lock().unwrap().insert(name.to_string(), node) {
+    if let Some(_) = NODES.lock().unwrap().insert(name.to_string(), node) {
         panic!("Cannot create two nodes with same name! [{}]", name);
     }
 }
@@ -34,22 +34,22 @@ pub struct DerivativeCalculationParams {
     /// the derivative of the loss function against each output node's activation value
     /// can be simply expressed as f'(a), f'(b), f'(c), etc...
     ///
-    /// The values in this hashmap represent the functions f'(a), f'(b), f'(c), etc...
-    output_nodes_loss_fn_derivative: HashMap<String, Box<Fn(f64) -> f64>>,
+    /// The values in this hashmap represent the output of the functions f'(a), f'(b), f'(c), etc...
+    output_nodes_loss_fn_derivative: HashMap<String, f64>,
 }
 
 impl DerivativeCalculationParams {
     pub fn new<F>(calc_derivative_iteration: i32,
                output_layer_node_names: Vec<String>,
                derivative_fn: F) -> DerivativeCalculationParams
-    where F: 'static + Copy + Fn(&str, f64) -> f64 {
-        let mut output_nodes_loss_fn_derivative: HashMap<String, Box<Fn(f64) -> f64>> = HashMap::new();
+    where F: 'static + Fn(&str) -> f64 {
+        let mut output_nodes_loss_fn_derivative: HashMap<String, f64> = HashMap::new();
 
         for n in output_layer_node_names {
             let n_clone = n.clone();
             output_nodes_loss_fn_derivative.insert(
                 n.clone(),
-            Box::new(move |activation| derivative_fn(n_clone.as_str(), activation)));
+            derivative_fn(n_clone.as_str()));
         }
 
         DerivativeCalculationParams {
@@ -64,13 +64,18 @@ pub trait Node {
     /// Retrieve a node's unique identifier
     fn name(&self) -> &str;
 
-    /// 'Activation' refers to the output value of the node
+    /// 'Activation' refers to the output value of the node.
     ///
     /// This should also update the stored activation value which will be returned by
-    /// `get_last_calc_activation`
+    /// `get_last_calc_activation()`
     fn calc_activation(&mut self) -> f64;
 
     /// Retrieves the last calculated activation.
+    ///
+    /// This cached value should be updated every time `calc_activation` is called. However,
+    /// there is no need to call `calc_activation` on each of the nodes directly, instead
+    /// calling `calculate_iter_loss()` on the `OutputLayer` object will make all connected nodes
+    /// update their cached activation values.
     ///
     /// This is useful when trying to calculate node determinants and the node
     /// activation value is needed such as
@@ -85,6 +90,9 @@ pub trait Node {
     /// Calculates the derivative of the loss function against
     /// this node's activation value (as per `get_last_calc_activation()`), then stores the
     /// derivative for later use when updating the nodes.
+    ///
+    /// Note that the cached activation values from `get_last_calc_activation()` is updated
+    /// by calling
     ///
     /// This is a recursive function which starts off by invoking this method on all
     /// input nodes, then follows by calling this method on all of its `output_nodes()`.
@@ -123,11 +131,11 @@ pub trait Node {
                 }
 
                 self.get_training_state_mut().dloss = final_dloss;
-            } else if let Some(f) = calc_state.output_nodes_loss_fn_derivative.get(self.name()) {
+            } else if let Some(derivative) = calc_state.output_nodes_loss_fn_derivative.get(self.name()) {
                 // If there are no output nodes, check calc_state if this node is an output node
                 // with a given partial loss function
 
-                self.get_training_state_mut().dloss = f(self.get_last_calc_activation());
+                self.get_training_state_mut().dloss = *derivative;
             } else {
                 println!("WARNING: [{}] Last layer node found that doesn't have a registered loss \
                 function partial derivative, defaulting gradient to 0.", self.name());
