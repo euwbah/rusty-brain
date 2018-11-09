@@ -75,6 +75,12 @@ impl Network {
         }
     }
 
+    /// Update each node's weights based on its previously calculated gradients.
+    /// Note that `evaluate_gradients()` must be called first.
+    pub fn update_weights(&mut self) {
+
+    }
+
     /// 1 epoch = go through all of the training data once.
     pub fn train_one_epoch(&mut self) {
         // Iteration represents the training sample index

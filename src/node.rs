@@ -161,7 +161,9 @@ pub trait Node {
     ///
     /// `gradient` represents the value of d(loss) / d(node activation output).
     /// (i.e., how much the loss will change if this node's output were to change by some small value d)
-    fn train(&mut self, gradient: f64);
+    fn update_weights(&mut self) {
+        // default to no weights to update
+    }
 
     /// Get a list of nodes connected as inputs of this node.
     fn input_nodes(&self) -> Vec<AM<Node + Send>>;
@@ -275,10 +277,6 @@ impl Node for InputNode {
         panic!("Attempted to calculate derivative against an InputNode");
     }
 
-    fn train(&mut self, gradient: f64) {
-        // Nothing to train
-    }
-
     fn input_nodes(&self) -> Vec<AM<Node + Send>> {
         vec![]
     }
@@ -356,10 +354,6 @@ impl Node for ConstantNode {
 
     fn calc_derivative_against(&self, input_node_name: &str) -> f64 {
         panic!("Attempted to calculate derivative against a ConstantNode!");
-    }
-
-    fn train(&mut self, gradient: f64) {
-        // Nothing to train
     }
 
     fn input_nodes(&self) -> Vec<AM<Node + Send>> {
@@ -473,11 +467,37 @@ impl Node for SumNode {
             .weight
     }
 
-    /// Updates weights of input nodes (if any) based on `gradient` and input node value.
-    ///
-    /// `gradient` represents the value of d(loss) / d(node activation output).
-    /// (i.e., how much the loss will change if this node's output were to change by some small value d)
-    fn train(&mut self, gradient: f64) {}
+    /// Updates weights of input nodes (if any) based on the previously calculated dloss.
+    fn update_weights(&mut self) {
+        /*
+            let loss     --> loss score
+                actv     --> activation of this node
+                actv_bar --> activation of this node before passing through the activation function
+                             (in the SumNode, the activation function is the identity function)
+                weight   --> weight multiplier of an input node
+
+            d(loss)/d(weight) = d(loss)/d(actv) * d(actv)/d(actv_bar) * d(actv_bar)/d(weight)
+
+            d(loss)/d(actv) is already given as `dloss_dactv`
+            d(actv)/d(actv_bar) is 1 as there is no activation function for the simple sum node.
+                                the derivative of f(x) = x is 1.
+            d(actv_bar)/d(weight) is the activation value of the input node,
+                                  since actv_bar = input * weight,
+                                  d(actv_bar)/d(weight) = input
+
+        */
+
+        let dloss_dactv = self.training_state.dloss;
+        let dactv_dactv_bar = 1.0; // f(x) = x ==> f'(x) = 1
+
+        let mut inputs = self.inputs.lock().unwrap();
+        for k in inputs.keys() {
+            let mut nw = inputs.get_mut(k).unwrap();
+            let dactv_bar_weight = nw.node.lock().unwrap().get_last_calc_activation();
+
+            let dloss_dweight = dloss_dactv * dactv_dactv_bar * dactv_bar_weight;
+        }
+    }
 
     fn input_nodes<'a>(&'a self) -> Vec<AM<Node + Send>> {
         self.inputs.lock().unwrap().iter().map(|(_, x)| x.node.clone()).collect()
@@ -570,7 +590,7 @@ impl Node for SigmoidNode {
         a * (1.0 - a) * w
     }
 
-    fn train(&mut self, gradient: f64) {}
+    fn update_weights(&mut self) {}
 
     fn input_nodes(&self) -> Vec<AM<Node + Send>> {
         self.inputs.lock().unwrap().iter().map(|(_, x)| x.node.clone()).collect()
