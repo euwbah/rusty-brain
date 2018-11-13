@@ -161,7 +161,7 @@ pub trait Node {
     ///
     /// `gradient` represents the value of d(loss) / d(node activation output).
     /// (i.e., how much the loss will change if this node's output were to change by some small value d)
-    fn update_weights(&mut self) {
+    fn update_weights(&mut self, step_size: f64) {
         // default to no weights to update
     }
 
@@ -468,12 +468,14 @@ impl Node for SumNode {
     }
 
     /// Updates weights of input nodes (if any) based on the previously calculated dloss.
-    fn update_weights(&mut self) {
+    /// `step_size` represents the multiplier of the dloss derivative to adjust the weight by.
+    fn update_weights(&mut self, step_size: f64) {
         /*
             let loss     --> loss score
                 actv     --> activation of this node
                 actv_bar --> activation of this node before passing through the activation function
                              (in the SumNode, the activation function is the identity function)
+                             this is also known as the "weighted sum"
                 weight   --> weight multiplier of an input node
 
             d(loss)/d(weight) = d(loss)/d(actv) * d(actv)/d(actv_bar) * d(actv_bar)/d(weight)
@@ -490,12 +492,20 @@ impl Node for SumNode {
         let dloss_dactv = self.training_state.dloss;
         let dactv_dactv_bar = 1.0; // f(x) = x ==> f'(x) = 1, identity activation function
 
-        let inputs = self.inputs.lock().unwrap();
+        let mut inputs_dloss = vec![];
+
+        let mut inputs = self.inputs.lock().unwrap();
         for k in inputs.keys() {
             let mut nw = inputs.get(k).unwrap();
             let dactv_bar_weight = nw.node.lock().unwrap().get_last_calc_activation();
 
             let dloss_dweight = dloss_dactv * dactv_dactv_bar * dactv_bar_weight;
+
+            inputs_dloss.push((k.to_owned(), dloss_dweight));
+        }
+
+        for (i, dloss) in inputs_dloss {
+            inputs.get_mut(i.as_str()).unwrap().weight -= step_size * dloss;
         }
     }
 
@@ -590,7 +600,9 @@ impl Node for SigmoidNode {
         a * (1.0 - a) * w
     }
 
-    fn update_weights(&mut self) {}
+    fn update_weights(&mut self, step_size: f64) {
+        unimplemented!();
+    }
 
     fn input_nodes(&self) -> Vec<AM<Node + Send>> {
         self.inputs.lock().unwrap().iter().map(|(_, x)| x.node.clone()).collect()
