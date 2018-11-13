@@ -488,11 +488,11 @@ impl Node for SumNode {
         */
 
         let dloss_dactv = self.training_state.dloss;
-        let dactv_dactv_bar = 1.0; // f(x) = x ==> f'(x) = 1
+        let dactv_dactv_bar = 1.0; // f(x) = x ==> f'(x) = 1, identity activation function
 
-        let mut inputs = self.inputs.lock().unwrap();
+        let inputs = self.inputs.lock().unwrap();
         for k in inputs.keys() {
-            let mut nw = inputs.get_mut(k).unwrap();
+            let mut nw = inputs.get(k).unwrap();
             let dactv_bar_weight = nw.node.lock().unwrap().get_last_calc_activation();
 
             let dloss_dweight = dloss_dactv * dactv_dactv_bar * dactv_bar_weight;

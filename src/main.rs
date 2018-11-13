@@ -59,19 +59,19 @@ fn main() {
 
             // Loss Function: Root Mean Square Error
             Box::new(|node_activations: Vec<f64>, ground_truths: Vec<f64>| {
-                let mut rmse = 0.0;
+                let mut mse = 0.0;
 
                 let actual_expected = node_activations.iter().zip(ground_truths.iter());
 
                 for (actual, expected) in actual_expected {
-                    rmse += f64::powi(actual - expected, 2);
+                    mse += f64::powi(actual - expected, 2) / (node_activations.len() as f64);
                 }
 
-                rmse
+                mse
             }));
 
     let mut network = Network::new(input_layer, output_layer);
-
+    let output_node_count = network.output_layer.output_nodes.len() as f64;
     for iter in 0..=10 {
         network.input_layer.set_iteration(iter);
         let loss = network.output_layer.calculate_iter_loss(iter);
@@ -89,7 +89,7 @@ fn main() {
             let nodes = NODES.lock().unwrap();
             let node = nodes.get(node_name).unwrap();
             let node = node.lock().unwrap();
-            2.0 * (node.get_last_calc_activation() - gt.get(node_name).unwrap())
+            2.0 * (node.get_last_calc_activation() - gt.get(node_name).unwrap()) / output_node_count
         })
     }
 }
