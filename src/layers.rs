@@ -65,11 +65,11 @@ impl InputLayer {
 }
 
 pub struct OutputLayer {
-    pub output_nodes: Vec<AM<Node>>,
+    pub output_nodes: Vec<AM<dyn Node>>,
     pub node_name_to_index_map: HashMap<String, usize>,
     pub training_ground_truths: Array2<f64>,
     /// Fn(List of current activation values, list of corresponding ground truth values) -> Loss score
-    pub loss_function: Box<Fn(Vec<f64>, Vec<f64>) -> f64>,
+    pub loss_function: Box<dyn Fn(Vec<f64>, Vec<f64>) -> f64>,
 }
 
 impl OutputLayer {
@@ -86,9 +86,9 @@ impl OutputLayer {
     /// The `loss_function` should calculate and return the loss score based on the two parameters provided.
     ///
     pub fn new(
-        nodes: &Vec<AM<Node>>,
+        nodes: &Vec<AM<dyn Node>>,
         _training_ground_truths: &[f64],
-        loss_function: Box<Fn(Vec<f64>, Vec<f64>) -> f64>,
+        loss_function: Box<dyn Fn(Vec<f64>, Vec<f64>) -> f64>,
     ) -> OutputLayer {
         let mut output_nodes = vec![];
         let mut node_name_to_index_map = HashMap::new();
