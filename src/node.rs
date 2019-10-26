@@ -2,20 +2,20 @@
 //! Just some basic nodes
 //!
 
+use am;
+use rand::prelude::*;
+use std::collections::HashMap;
 use std::f64;
 use std::sync::Mutex;
-use std::collections::HashMap;
-use rand::prelude::*;
 use AM;
-use am;
 
 lazy_static! {
     /// Global lookup for nodes
-    pub static ref NODES: Mutex<HashMap<String, AM<Node + Send>>> = Mutex::new(HashMap::new());
+    pub static ref NODES: Mutex<HashMap<String, AM<dyn Node + Send>>> = Mutex::new(HashMap::new());
 }
 
 /// Call this in the constructor of nodes
-fn register_node(name: &str, node: AM<Node + Send>) {
+fn register_node(name: &str, node: AM<dyn Node + Send>) {
     if let Some(_) = NODES.lock().unwrap().insert(name.to_string(), node) {
         panic!("Cannot create two nodes with same name! [{}]", name);
     }
@@ -39,22 +39,24 @@ pub struct DerivativeCalculationParams {
 }
 
 impl DerivativeCalculationParams {
-    pub fn new<F>(calc_derivative_iteration: i32,
-               output_layer_node_names: Vec<String>,
-               derivative_fn: F) -> DerivativeCalculationParams
-    where F: 'static + Fn(&str) -> f64 {
+    pub fn new<F>(
+        calc_derivative_iteration: i32,
+        output_layer_node_names: Vec<String>,
+        derivative_fn: F,
+    ) -> DerivativeCalculationParams
+    where
+        F: 'static + Fn(&str) -> f64,
+    {
         let mut output_nodes_loss_fn_derivative: HashMap<String, f64> = HashMap::new();
 
         for n in output_layer_node_names {
             let n_clone = n.clone();
-            output_nodes_loss_fn_derivative.insert(
-                n.clone(),
-            derivative_fn(n_clone.as_str()));
+            output_nodes_loss_fn_derivative.insert(n.clone(), derivative_fn(n_clone.as_str()));
         }
 
         DerivativeCalculationParams {
             calc_derivative_iteration,
-            output_nodes_loss_fn_derivative
+            output_nodes_loss_fn_derivative,
         }
     }
 }
@@ -105,7 +107,9 @@ pub trait Node {
     /// would have been found to be the same and the derivative calculation and recursion of
     /// its output nodes can be skipped.
     fn calc_activation_derivative(&mut self, calc_state: &DerivativeCalculationParams) -> f64 {
-        if self.get_training_state().calc_derivative_iteration != calc_state.calc_derivative_iteration {
+        if self.get_training_state().calc_derivative_iteration
+            != calc_state.calc_derivative_iteration
+        {
             /*
                 Simply sum up partial derivatives of each output node.
                 Let x            -> this activation
@@ -116,33 +120,40 @@ pub trait Node {
 
             self.get_training_state_mut().dloss = 0.0;
 
-            let output_nodes_count = {
-                self.output_nodes().len()
-            };
+            let output_nodes_count = { self.output_nodes().len() };
 
             if output_nodes_count != 0 {
                 let mut final_dloss = 0.0;
                 for o in self.output_nodes() {
                     let mut o = o.lock().unwrap();
-                    let dloss_partial_derivative =
-                        o.calc_derivative_against(self.name()) * o.calc_activation_derivative(&calc_state);
+                    let dloss_partial_derivative = o.calc_derivative_against(self.name())
+                        * o.calc_activation_derivative(&calc_state);
 
                     final_dloss += dloss_partial_derivative;
                 }
 
                 self.get_training_state_mut().dloss = final_dloss;
-            } else if let Some(derivative) = calc_state.output_nodes_loss_fn_derivative.get(self.name()) {
+            } else if let Some(derivative) =
+                calc_state.output_nodes_loss_fn_derivative.get(self.name())
+            {
                 // If there are no output nodes, check calc_state if this node is an output node
                 // with a given partial loss function
 
                 self.get_training_state_mut().dloss = *derivative;
             } else {
-                println!("WARNING: [{}] Last layer node found that doesn't have a registered loss \
-                function partial derivative, defaulting gradient to 0.", self.name());
+                println!(
+                    "WARNING: [{}] Last layer node found that doesn't have a registered loss \
+                     function partial derivative, defaulting gradient to 0.",
+                    self.name()
+                );
             }
         }
 
-        println!("dLoss/d[{}]: {}", self.name(), self.get_training_state().dloss);
+        println!(
+            "dLoss/d[{}]: {}",
+            self.name(),
+            self.get_training_state().dloss
+        );
 
         self.get_training_state_mut().dloss
     }
@@ -166,26 +177,26 @@ pub trait Node {
     }
 
     /// Get a list of nodes connected as inputs of this node.
-    fn input_nodes(&self) -> Vec<AM<Node + Send>>;
+    fn input_nodes(&self) -> Vec<AM<dyn Node + Send>>;
 
     fn input_node_weights(&self) -> AM<HashMap<String, NodeWeight>>;
 
     /// Get a list of nodes receiving this node's output as a parameter.
     /// Used for calculating the derivative of all the nodes recursively.
     /// No mutability needed, hopefully!
-    fn output_nodes(&self) -> &Vec<AM<Node + Send>>;
+    fn output_nodes(&self) -> &Vec<AM<dyn Node + Send>>;
 
     /// Register a node as an input for this node
     /// Do not call this function on its own, use the `connect` function instead
-    fn add_input_node(&mut self, input_node: AM<Node + Send>);
+    fn add_input_node(&mut self, input_node: AM<dyn Node + Send>);
 
     /// Register a node as an input for this node with a predefined weight
     /// Do not call this function on its own, use the `connect` function instead
-    fn add_input_node_init(&mut self, input_node: AM<Node + Send>, weight: f64);
+    fn add_input_node_init(&mut self, input_node: AM<dyn Node + Send>, weight: f64);
 
     /// Register a node as a receiver of the output from this node
     /// Do not call this function on its own, use the `connect` function instead
-    fn add_output_node(&mut self, output_node: AM<Node + Send>);
+    fn add_output_node(&mut self, output_node: AM<dyn Node + Send>);
 }
 
 /// Connect the output of node a to the input of node b.
@@ -194,13 +205,13 @@ pub trait Node {
 /// from A to B and from B to A simultaneously when in the scope of either A or B.
 /// Hence, a function outside the scope of A or B's `self` is required as only then
 /// can A and B reference each other.
-pub fn connect(a: AM<Node + Send>, b: AM<Node + Send>) {
+pub fn connect(a: AM<dyn Node + Send>, b: AM<dyn Node + Send>) {
     a.lock().unwrap().add_output_node(b.clone());
     b.lock().unwrap().add_input_node(a);
 }
 
 /// Connect the output of node a to the input of node b with a preset weight.
-pub fn connect_init(a: AM<Node + Send>, b: AM<Node + Send>, weight: f64) {
+pub fn connect_init(a: AM<dyn Node + Send>, b: AM<dyn Node + Send>, weight: f64) {
     a.lock().unwrap().add_output_node(b.clone());
     b.lock().unwrap().add_input_node_init(a, weight);
 }
@@ -227,7 +238,7 @@ impl Default for TrainingState {
 pub struct InputNode {
     pub name: String,
     pub value: f64,
-    outputs: Vec<AM<Node + Send>>,
+    outputs: Vec<AM<dyn Node + Send>>,
     training_state: TrainingState,
     /// Fighting borrow checker
     empty_hashmap: AM<HashMap<String, NodeWeight>>,
@@ -277,7 +288,7 @@ impl Node for InputNode {
         panic!("Attempted to calculate derivative against an InputNode");
     }
 
-    fn input_nodes(&self) -> Vec<AM<Node + Send>> {
+    fn input_nodes(&self) -> Vec<AM<dyn Node + Send>> {
         vec![]
     }
 
@@ -285,19 +296,19 @@ impl Node for InputNode {
         self.empty_hashmap.clone()
     }
 
-    fn output_nodes(&self) -> &Vec<AM<Node + Send>> {
+    fn output_nodes(&self) -> &Vec<AM<dyn Node + Send>> {
         &self.outputs
     }
 
-    fn add_input_node(&mut self, input_node: AM<Node + Send>) {
+    fn add_input_node(&mut self, input_node: AM<dyn Node + Send>) {
         panic!("InputNode does not have an input!")
     }
 
-    fn add_input_node_init(&mut self, input_node: AM<Node + Send>, weight: f64) {
+    fn add_input_node_init(&mut self, input_node: AM<dyn Node + Send>, weight: f64) {
         panic!("InputNode does not have an input!")
     }
 
-    fn add_output_node(&mut self, node: AM<Node + Send>) {
+    fn add_output_node(&mut self, node: AM<dyn Node + Send>) {
         self.outputs.push(node);
     }
 }
@@ -308,7 +319,7 @@ impl Node for InputNode {
 pub struct ConstantNode {
     pub name: String,
     pub const_value: f64,
-    outputs: Vec<AM<Node + Send>>,
+    outputs: Vec<AM<dyn Node + Send>>,
     training_state: TrainingState,
     /// Fighting borrow checker
     empty_hashmap: AM<HashMap<String, NodeWeight>>,
@@ -356,7 +367,7 @@ impl Node for ConstantNode {
         panic!("Attempted to calculate derivative against a ConstantNode!");
     }
 
-    fn input_nodes(&self) -> Vec<AM<Node + Send>> {
+    fn input_nodes(&self) -> Vec<AM<dyn Node + Send>> {
         vec![]
     }
 
@@ -364,34 +375,31 @@ impl Node for ConstantNode {
         self.empty_hashmap.clone()
     }
 
-    fn output_nodes(&self) -> &Vec<AM<Node + Send>> {
+    fn output_nodes(&self) -> &Vec<AM<dyn Node + Send>> {
         &self.outputs
     }
 
-    fn add_input_node(&mut self, input_node: AM<Node + Send>) {
+    fn add_input_node(&mut self, input_node: AM<dyn Node + Send>) {
         panic!("ConstantNode does not have an input!")
     }
 
-    fn add_input_node_init(&mut self, input_node: AM<Node + Send>, weight: f64) {
+    fn add_input_node_init(&mut self, input_node: AM<dyn Node + Send>, weight: f64) {
         panic!("ConstantNode does not have an input!")
     }
 
-    fn add_output_node(&mut self, node: AM<Node + Send>) {
+    fn add_output_node(&mut self, node: AM<dyn Node + Send>) {
         self.outputs.push(node);
     }
 }
 
 pub struct NodeWeight {
-    pub node: AM<Node + Send>,
+    pub node: AM<dyn Node + Send>,
     pub weight: f64,
 }
 
 impl NodeWeight {
-    pub fn new(node: AM<Node + Send>, weight: f64) -> NodeWeight {
-        NodeWeight {
-            node,
-            weight,
-        }
+    pub fn new(node: AM<dyn Node + Send>, weight: f64) -> NodeWeight {
+        NodeWeight { node, weight }
     }
 
     pub fn calc_weighted_activation(&self) -> f64 {
@@ -404,7 +412,7 @@ pub struct SumNode {
     pub name: String,
     /// Node name: NodeWeight
     pub inputs: AM<HashMap<String, NodeWeight>>,
-    outputs: Vec<AM<Node + Send>>,
+    outputs: Vec<AM<dyn Node + Send>>,
     /// Stores the last value returned by `calc_activation()`.
     /// Only updated when `calc_activation()` is called.
     activation: f64,
@@ -435,9 +443,12 @@ impl Node for SumNode {
     }
 
     fn calc_activation(&mut self) -> f64 {
-        let sum = self.inputs.lock().unwrap().iter().fold(
-            0.0,
-            |acc, (name, node_weight)| {
+        let sum = self
+            .inputs
+            .lock()
+            .unwrap()
+            .iter()
+            .fold(0.0, |acc, (name, node_weight)| {
                 acc + node_weight.calc_weighted_activation()
             });
 
@@ -462,7 +473,10 @@ impl Node for SumNode {
         // since there is no activation function, derivative is just
         // d(weight * input_node activation) / d(input_node activation), i.e. just weight.
 
-        self.inputs.lock().unwrap().get(input_node_name)
+        self.inputs
+            .lock()
+            .unwrap()
+            .get(input_node_name)
             .expect(format!("[{}] is not an input of [{}]", input_node_name, self.name).as_str())
             .weight
     }
@@ -504,36 +518,43 @@ impl Node for SumNode {
             inputs_dloss.push((k.to_owned(), dloss_dweight));
         }
 
-        for (i, dloss) in inputs_dloss {
+        for (i, dloss) in inputs_dloss.into_iter() {
             inputs.get_mut(i.as_str()).unwrap().weight -= step_size * dloss;
         }
     }
 
-    fn input_nodes<'a>(&'a self) -> Vec<AM<Node + Send>> {
-        self.inputs.lock().unwrap().iter().map(|(_, x)| x.node.clone()).collect()
+    fn input_nodes<'a>(&'a self) -> Vec<AM<dyn Node + Send>> {
+        self.inputs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, x)| x.node.clone())
+            .collect()
     }
 
     fn input_node_weights(&self) -> AM<HashMap<String, NodeWeight>> {
         self.inputs.clone()
     }
 
-    fn output_nodes(&self) -> &Vec<AM<Node + Send>> {
+    fn output_nodes(&self) -> &Vec<AM<dyn Node + Send>> {
         &self.outputs
     }
 
     /// Add an input with a randomly initialized weight ranging from -1 to 1
     /// DO NOT CALL ALONE. Use `connect()` instead
-    fn add_input_node(&mut self, input_node: AM<Node + Send>) {
+    fn add_input_node(&mut self, input_node: AM<dyn Node + Send>) {
         self.add_input_node_init(input_node, thread_rng().gen_range(-1.0, 1.0));
     }
 
-    fn add_input_node_init(&mut self, input_node: AM<Node + Send>, weight: f64) {
+    fn add_input_node_init(&mut self, input_node: AM<dyn Node + Send>, weight: f64) {
         let clone = input_node.clone();
-        self.inputs.lock().unwrap().insert(clone.lock().unwrap().name().to_string(),
-                                           NodeWeight::new(input_node, weight));
+        self.inputs.lock().unwrap().insert(
+            clone.lock().unwrap().name().to_string(),
+            NodeWeight::new(input_node, weight),
+        );
     }
 
-    fn add_output_node(&mut self, node: AM<Node + Send>) {
+    fn add_output_node(&mut self, node: AM<dyn Node + Send>) {
         self.outputs.push(node);
     }
 }
@@ -544,7 +565,7 @@ pub struct SigmoidNode {
     pub name: String,
     /// Node name: NodeWeight
     pub inputs: AM<HashMap<String, NodeWeight>>,
-    outputs: Vec<AM<Node + Send>>,
+    outputs: Vec<AM<dyn Node + Send>>,
     /// Stores the last value returned by `calc_activation()`.
     /// Only updated when `calc_activation()` is called.
     activation: f64,
@@ -557,11 +578,9 @@ impl Node for SigmoidNode {
     }
 
     fn calc_activation(&mut self) -> f64 {
-        let sum = self.inputs.lock().unwrap().iter().fold(
-            0.0,
-            |acc, (_, x)| {
-                acc + x.node.lock().unwrap().calc_activation() * x.weight
-            });
+        let sum = self.inputs.lock().unwrap().iter().fold(0.0, |acc, (_, x)| {
+            acc + x.node.lock().unwrap().calc_activation() * x.weight
+        });
 
         let sigmoid_activation = 1.0 / (1.0 + f64::exp(-sum));
 
@@ -590,10 +609,13 @@ impl Node for SigmoidNode {
         // d(a) / d(input_node activation) = d(a)/d(z) * d(z)/d(input_node activation)
         //                                 = sigmoid(z)(1 - sigmoid(z)) * connection weight
 
-        let w =
-            self.inputs.lock().unwrap().get(input_node_name)
-                .expect(format!("[{}] is not an input of [{}]", input_node_name, self.name).as_str())
-                .weight;
+        let w = self
+            .inputs
+            .lock()
+            .unwrap()
+            .get(input_node_name)
+            .expect(format!("[{}] is not an input of [{}]", input_node_name, self.name).as_str())
+            .weight;
 
         let a = self.get_last_calc_activation();
 
@@ -604,32 +626,38 @@ impl Node for SigmoidNode {
         unimplemented!();
     }
 
-    fn input_nodes(&self) -> Vec<AM<Node + Send>> {
-        self.inputs.lock().unwrap().iter().map(|(_, x)| x.node.clone()).collect()
+    fn input_nodes(&self) -> Vec<AM<dyn Node + Send>> {
+        self.inputs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, x)| x.node.clone())
+            .collect()
     }
 
     fn input_node_weights(&self) -> AM<HashMap<String, NodeWeight>> {
         self.inputs.clone()
     }
 
-    fn output_nodes(&self) -> &Vec<AM<Node + Send>> {
+    fn output_nodes(&self) -> &Vec<AM<dyn Node + Send>> {
         &self.outputs
     }
 
     /// Add an input with a randomly initialized weight ranging from -1 to 1
     /// DO NOT CALL ALONE. Use `connect()` instead
-    fn add_input_node(&mut self, input_node: AM<Node + Send>) {
+    fn add_input_node(&mut self, input_node: AM<dyn Node + Send>) {
         self.add_input_node_init(input_node, thread_rng().gen_range(-1.0, 1.0));
     }
 
-    fn add_input_node_init(&mut self, input_node: AM<Node + Send>, weight: f64) {
+    fn add_input_node_init(&mut self, input_node: AM<dyn Node + Send>, weight: f64) {
         let clone = input_node.clone();
-        self.inputs.lock().unwrap().insert(clone.lock().unwrap().name().to_string(),
-                                           NodeWeight::new(input_node, weight));
+        self.inputs.lock().unwrap().insert(
+            clone.lock().unwrap().name().to_string(),
+            NodeWeight::new(input_node, weight),
+        );
     }
 
-    fn add_output_node(&mut self, node: AM<Node + Send>) {
+    fn add_output_node(&mut self, node: AM<dyn Node + Send>) {
         self.outputs.push(node);
     }
 }
-

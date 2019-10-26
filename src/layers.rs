@@ -1,10 +1,10 @@
-use node::Node;
-use AM;
 use ndarray::prelude::Array2;
-use ndarray::Axis;
 use ndarray::ArrayBase;
+use ndarray::Axis;
 use node::InputNode;
+use node::Node;
 use std::collections::HashMap;
+use AM;
 
 pub struct InputLayer {
     pub input_nodes: Vec<AM<InputNode>>,
@@ -23,7 +23,10 @@ impl InputLayer {
 
         let node_count = input_nodes.len();
 
-        assert!(training_vals.len() % node_count == 0, "training_vals.len() must be a multiple of nodes.len()!");
+        assert!(
+            training_vals.len() % node_count == 0,
+            "training_vals.len() must be a multiple of nodes.len()!"
+        );
 
         let mut training_inputs =
             Array2::<f64>::zeros((training_vals.len() / node_count, node_count));
@@ -62,11 +65,11 @@ impl InputLayer {
 }
 
 pub struct OutputLayer {
-    pub output_nodes: Vec<AM<Node>>,
+    pub output_nodes: Vec<AM<dyn Node>>,
     pub node_name_to_index_map: HashMap<String, usize>,
     pub training_ground_truths: Array2<f64>,
     /// Fn(List of current activation values, list of corresponding ground truth values) -> Loss score
-    pub loss_function: Box<Fn(Vec<f64>, Vec<f64>) -> f64>,
+    pub loss_function: Box<dyn Fn(Vec<f64>, Vec<f64>) -> f64>,
 }
 
 impl OutputLayer {
@@ -82,9 +85,11 @@ impl OutputLayer {
     /// for any particular iteration in the same index order as `self.output_nodes`.
     /// The `loss_function` should calculate and return the loss score based on the two parameters provided.
     ///
-    pub fn new(nodes: &Vec<AM<Node>>,
-               _training_ground_truths: &[f64],
-               loss_function: Box<Fn(Vec<f64>, Vec<f64>) -> f64>) -> OutputLayer {
+    pub fn new(
+        nodes: &Vec<AM<dyn Node>>,
+        _training_ground_truths: &[f64],
+        loss_function: Box<dyn Fn(Vec<f64>, Vec<f64>) -> f64>,
+    ) -> OutputLayer {
         let mut output_nodes = vec![];
         let mut node_name_to_index_map = HashMap::new();
 
@@ -96,7 +101,10 @@ impl OutputLayer {
 
         let node_count = output_nodes.len();
 
-        assert!(_training_ground_truths.len() % node_count == 0, "training_vals.len() must be a multiple of nodes.len()!");
+        assert!(
+            _training_ground_truths.len() % node_count == 0,
+            "training_vals.len() must be a multiple of nodes.len()!"
+        );
 
         let mut training_ground_truths =
             Array2::<f64>::zeros((_training_ground_truths.len() / node_count, node_count));
@@ -133,12 +141,19 @@ impl OutputLayer {
 
             let activation = node.calc_activation();
             output_node_activations.push(activation);
-            println!("activation: {}, ground: {}", activation, node_ground_truth_val);
+            println!(
+                "activation: {}, ground: {}",
+                activation, node_ground_truth_val
+            );
         }
 
         let mut expected_ground_truths: Vec<f64> = vals.to_vec();
 
-        assert_eq!(output_node_activations.len(), expected_ground_truths.len(), "Unexpected error!!??");
+        assert_eq!(
+            output_node_activations.len(),
+            expected_ground_truths.len(),
+            "Unexpected error!!??"
+        );
 
         (self.loss_function)(output_node_activations, expected_ground_truths)
     }
